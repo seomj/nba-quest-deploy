@@ -16,7 +16,7 @@ pipeline {
             steps {
                 git branch: 'main',
                     credentialsId: 'NBA-Quest-Deploy-Gitops-Pipeline-Credential',
-                    url: 'https://github.com/seomj/nbb-quest-deploy.git'
+                    url: 'https://github.com/seomj/nba-quest-deploy.git'
             }
         }
         
