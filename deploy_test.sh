@@ -62,6 +62,8 @@ function create_lb(){
       --set clusterName=$AWS_EKS_NAME \
       --set serviceAccount.create=false \
       --set serviceAccount.name=aws-load-balancer-controller 
+    
+    sleep 10s
 
     # error
     if [ $? -ne 0 ]; then
