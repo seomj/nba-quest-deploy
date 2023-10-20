@@ -61,9 +61,7 @@ function create_lb(){
       -n kube-system \
       --set clusterName=$AWS_EKS_NAME \
       --set serviceAccount.create=false \
-      --set serviceAccount.name=aws-load-balancer-controller 
-    
-    sleep 10s
+      --set serviceAccount.name=aws-load-balancer-controller && sleep 10
 
     # error
     if [ $? -ne 0 ]; then
