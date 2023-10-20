@@ -113,6 +113,9 @@ done
 
 # eks가 없다면
 if [ "$EKS_EXIST" == false ]; then
+  cat ~/.aws/credentials
+  echo $EKS_LIST
+  echo $AWS_EKS_NAME
   echo "EKS cluster '$AWS_EKS_NAME' not found in region '$AWS_DEFAULT_REGION'."
   #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"EKS cluster '$AWS_EKS_NAME' not found in region '$AWS_DEFAULT_REGION'."}' -H "Content-Type: application/json" $URL
   exit 1
