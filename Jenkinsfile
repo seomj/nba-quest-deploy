@@ -6,7 +6,7 @@ pipeline {
         REGION='ap-northeast-1'
         ECR_PATH='dkr.ecr.ap-northeast-1.amazonaws.com'
         ACCOUNT_ID='622164100401'
-        AWS_CREDENTIAL_NAME='NBA-AWS-Credential'
+        AWS_CREDENTIAL_NAME='NBA-AWS-Credential-v2'
         IMAGE_NAME = 'nba-quest-deploy'
         IMAGE_VERSION = "0.0.21" 
     }
@@ -31,7 +31,7 @@ pipeline {
         stage('upload aws ECR') {
             steps {                
                 script {
-                    docker.withRegistry("https://$ACCOUNT_ID.$ECR_PATH", "ecr:$REGION:NBA-AWS-Credential") {
+                    docker.withRegistry("https://$ACCOUNT_ID.$ECR_PATH", "ecr:$REGION:$AWS_CREDENTIAL_NAME") {
                         docker.image("$ACCOUNT_ID.$ECR_PATH/$IMAGE_NAME:$IMAGE_VERSION").push()
                     }
                 }
