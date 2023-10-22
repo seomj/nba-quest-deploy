@@ -10,7 +10,7 @@ function aws_confingure(){
   # Error 발생 시
     if [ $? -ne 0 ]; then
       echo "Failed to configure AWS CLI."
-      #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Failed to configure AWS CLI."}' -H "Content-Type: application/json" $URL
+      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to configure AWS CLI."}' -H "Content-Type: application/json" $API_ENDPOINT
       exit 1
     else
       echo "AWS CLI configured successfully."
@@ -20,15 +20,12 @@ function aws_confingure(){
 # create LB function
 function create_lb(){
   if [ "$LB_CONTROLLER" == true ]; then
-    # test용 정책 생성 - 실제로는 provision에서 수행
-    #curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
-    #aws iam create-policy \
-    #  --policy-name AWSLoadBalancerControllerIAMPolicy \
-    #  --policy-document file://iam_policy.json
 
     eksctl utils associate-iam-oidc-provider --region=$AWS_DEFAULT_REGION --cluster=$AWS_EKS_NAME --approve
-
+    
     # IAM Role
+    AWS_USER_ID=$(aws sts get-caller-identity | jq -r .UserId)
+
     eksctl create iamserviceaccount \
       --cluster=$AWS_EKS_NAME \
       --namespace=kube-system \
@@ -41,18 +38,17 @@ function create_lb(){
     # error
     if [ $? -ne 0 ]; then
       echo "Failed to create IAM service account."
-      #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Failed to create IAM service account."}' -H "Content-Type: application/json" $URL
+      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to create IAM service account."}' -H "Content-Type: application/json" $API_ENDPOINT
       exit 1
     fi
 
     # repo
-    helm repo add eks https://aws.github.io/eks-charts
-    helm repo update eks
+    helm repo add eks https://aws.github.io/eks-charts && helm repo update eks
 
     #error
     if [ $? -ne 0 ]; then
       echo "Failed to add Helm repository or update."
-      #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Failed to add Helm repository or update."}' -H "Content-Type: application/json" $URL
+      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to add Helm repository or update."}' -H "Content-Type: application/json" $API_ENDPOINT
       exit 1
     fi
 
@@ -66,7 +62,7 @@ function create_lb(){
     # error
     if [ $? -ne 0 ]; then
       echo "Failed to install AWS Load Balancer Controller using Helm."
-      #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Failed to install AWS Load Balancer Controller using Helm."}' -H "Content-Type: application/json" $URL
+      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to install AWS Load Balancer Controller using Helm."}' -H "Content-Type: application/json" $API_ENDPOINT
       exit 1
     fi
   fi
@@ -102,7 +98,7 @@ for EKS in $EKS_LIST; do
     # Error 발생 시
     if [ $? -ne 0 ]; then
       echo "Failed to update kubeconfig for EKS cluster '$AWS_EKS_NAME'."
-      #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Failed to update kubeconfig for EKS cluster '$AWS_EKS_NAME'."}' -H "Content-Type: application/json" $URL
+      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to update kubeconfig for EKS cluster '$AWS_EKS_NAME'."}' -H "Content-Type: application/json" $API_ENDPOINT
       exit 1
     fi
     # eks가 있다면 true
@@ -114,7 +110,7 @@ done
 # eks가 없다면
 if [ "$EKS_EXIST" == false ]; then
   echo "EKS cluster '$AWS_EKS_NAME' not found in region '$AWS_DEFAULT_REGION'."
-  #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"EKS cluster '$AWS_EKS_NAME' not found in region '$AWS_DEFAULT_REGION'."}' -H "Content-Type: application/json" $URL
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"EKS cluster '$AWS_EKS_NAME' not found in region '$AWS_DEFAULT_REGION'."}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
@@ -143,7 +139,7 @@ if [ "$LB_CONTROLLER" == true ]; then
 
   if [ "$LB_STATUS" != True ]; then
     echo "Load balancer controller is not available."
-    #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Load balancer controller is not available."}' -H "Content-Type: application/json" $URL
+    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load balancer controller is not available."}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   else
     echo "Load balancer controller is available."
@@ -154,6 +150,7 @@ fi
 # create ns
 NS_LIST=$(kubectl get ns -o jsonpath='{.items[*].metadata.name}')
 NS_EXIST=false
+AWS_NAMESPACE=$NAME-ns
 
 # ns가 있다면
 for NS in $NS_LIST; do
@@ -168,7 +165,7 @@ if [ "$NS_EXIST" == false ]; then
   kubectl create namespace "$AWS_NAMESPACE"
   if [ $? -ne 0 ]; then
     echo "Failed to create namespace."
-    #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Load balancer controller is not available."}' -H "Content-Type: application/json" $URL
+    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load balancer controller is not available."}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   else
     echo "Namespace created successfully."
@@ -179,12 +176,14 @@ fi
 
 
 # svc
+SVC_NAME=$NAME-svc
+
 cat <<EOF > service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: $SVC_NAME
-  namespace: $SVC_NAMESPACE
+  namespace: $AWS_NAMESPACE
 EOF
 
 if [ $LB_CONTROLLER == true ]; then
@@ -216,13 +215,16 @@ spec:
   type: LoadBalancer
 EOF
 
+
 # deployment
+DEPLOY_NAME=$NAME-deploy
+
 cat <<EOF > deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: $DEPLOY_NAME
-  namespace: $DEPLOY_NAMESPACE
+  namespace: $AWS_NAMESPACE
   labels:
     $DEPLOY_LABEL_KEY: $DEPLOY_LABEL_VALUE
 spec:
@@ -246,17 +248,17 @@ EOF
 kubectl apply -f service.yaml 
 if [ $? -ne 0 ]; then
   echo "Failed to apply service configuration."
-  #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Failed to apply service configuration."}' -H "Content-Type: application/json" $URL
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply service configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
 kubectl apply -f deployment.yaml 
 if [ $? -ne 0 ]; then
   echo "Failed to apply deployment configuration."
-  #curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Failed","emessage":"Failed to apply deployment configuration."}' -H "Content-Type: application/json" $URL
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply deployment configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
 # 작업 종료
 echo "Success Deploy!"
-#curl -i -X POST -d '{"id":'$id',"progress":"deployment","state":"Success","emessage":"Success Deploy!"}' -H "Content-Type: application/json" $URL
+#curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Success","emessage":"Success Deploy!"}' -H "Content-Type: application/json" $API_ENDPOINT
