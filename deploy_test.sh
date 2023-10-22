@@ -218,6 +218,7 @@ EOF
 
 # deployment
 DEPLOY_NAME=$NAME-deploy
+DEPLOY_CONTAINER_NAME==$NAME-ctn
 
 cat <<EOF > deployment.yaml
 apiVersion: apps/v1
