@@ -7,6 +7,7 @@ DEPLOY_NAME=test-deploy
 NAMESPACE_NAME=eks-test
 TITLE=seomj   #provisioning의 TITLE과 통일
 SECRET='[{"KEY":1,"VALUE":2},{"KEY":3,"VALUE":4},{"KEY":5,"VALUE":6}]'
+COUNT='3'
 
 # aws configure function
 function aws_confingure(){
@@ -213,17 +214,24 @@ metadata:
   namespace: $NAMESPACE_NAME
 EOF
 
+LB_SUBNETS=""
+
+for ((i=1; i<=$COUNT; i++));
+do
+  LB_SUBNETS+="PUBLIC-SUBNET-$i"
+  if [ $i -lt $COUNT ]; then
+    LB_SUBNETS+=", "
+  fi
+done
+
 if [ $LB_CONTROLLER == true ]; then
   cat <<EOF >> service.yaml
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-type: external
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+    service.beta.kubernetes.io/aws-load-balancer-subnets: $LB_SUBNETS
 EOF
-
-  if [ -n "$LB_SUBNETS" ]; then
-    echo "    service.beta.kubernetes.io/aws-load-balancer-subnets: $LB_SUBNETS" >> service.yaml
-  fi
 fi
 
 cat <<EOF >> service.yaml
