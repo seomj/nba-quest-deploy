@@ -267,7 +267,7 @@ spec:
         - containerPort: $PORT
         envFrom:
         - secretRef:
-          name: $TITLE-secret
+            name: $TITLE-secret
 EOF
 
 kubectl apply -f secret.yaml
