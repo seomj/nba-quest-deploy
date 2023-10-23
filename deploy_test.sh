@@ -6,6 +6,7 @@ SVC_NAME=test-svc
 DEPLOY_NAME=test-deploy
 NAMESPACE_NAME=eks-test
 TITLE=seomj   #provisioning의 TITLE과 통일
+SECRET='[{"KEY":1,"VALUE":2},{"KEY":3,"VALUE":4},{"KEY":5,"VALUE":6}]'
 
 # aws configure function
 function aws_confingure(){
@@ -181,7 +182,26 @@ else
 fi
 
 # secret
+cat <<EOF > secret.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: $TITLE-secret
+  namespace: $NAMESPACE_NAME
+type: Opaque
+data:
+EOF
 
+# base64
+for item in $(echo "$SECRET" | jq -c '.[]'); do
+  key=$(echo "$item" | jq -r '.KEY')
+  value=$(echo "$item" | jq -r '.VALUE')
+  base64_value=$(echo -n "$value" | base64)
+  
+  cat << EOF >> secret.yaml
+  $key: $base64_value
+EOF
+done
 
 
 # svc
@@ -247,12 +267,12 @@ spec:
         - containerPort: $PORT
 EOF
 
-#kubectl apply -f secret.yaml
-#if [ $? -ne 0 ]; then
-#  echo "Failed to apply secert configuration."
-#  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply secret configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
-#  exit 1
-#fi
+kubectl apply -f secret.yaml
+if [ $? -ne 0 ]; then
+  echo "Failed to apply secert configuration."
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply secret configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
+  exit 1
+fi
 
 kubectl apply -f service.yaml 
 if [ $? -ne 0 ]; then
