@@ -195,10 +195,10 @@ EOF
 
 if [ $LB_CONTROLLER == true ]; then
   cat <<EOF >> service.yaml
-    annotations:
-      service.beta.kubernetes.io/aws-load-balancer-type: external
-      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: external
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
 EOF
 
   if [ -n "$LB_SUBNETS" ]; then
