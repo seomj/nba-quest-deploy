@@ -265,6 +265,9 @@ spec:
         image: $DEPLOY_CONTAINER_IMAGE
         ports:
         - containerPort: $PORT
+        envFrom:
+        - secretRef:
+          name: $TITLE-secret
 EOF
 
 kubectl apply -f secret.yaml
