@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# test용 변수들
+APP_NAME=test-ctn
+SVC_NAME=test-svc
+DEPLOY_NAME=test-deploy
+NAMESPACE_NAME=eks-test
+TITLE=seomj   #provisioning의 TITLE과 통일
+
 # aws configure function
 function aws_confingure(){
   aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
@@ -150,11 +157,10 @@ fi
 # create ns
 NS_LIST=$(kubectl get ns -o jsonpath='{.items[*].metadata.name}')
 NS_EXIST=false
-AWS_NAMESPACE=$NAME-ns
 
 # ns가 있다면
 for NS in $NS_LIST; do
-  if [ "$NS" == "$AWS_NAMESPACE" ]; then
+  if [ "$NS" == "$NAMESPACE_NAME" ]; then
     NS_EXIST=true
     break
   fi
@@ -162,7 +168,7 @@ done
 
 # ns가 없다면
 if [ "$NS_EXIST" == false ]; then
-  kubectl create namespace "$AWS_NAMESPACE"
+  kubectl create namespace "$NAMESPACE_NAME"
   if [ $? -ne 0 ]; then
     echo "Failed to create namespace."
     #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load balancer controller is not available."}' -H "Content-Type: application/json" $API_ENDPOINT
@@ -171,80 +177,82 @@ if [ "$NS_EXIST" == false ]; then
     echo "Namespace created successfully."
   fi
 else
-  echo "Namespace $AWS_NAMESPACE already exists."
+  echo "Namespace $NAMESPACE_NAME already exists."
 fi
+
+# secret
+
 
 
 # svc
-SVC_NAME=$NAME-svc
-
 cat <<EOF > service.yaml
 apiVersion: v1
 kind: Service
 metadata:
   name: $SVC_NAME
-  namespace: $AWS_NAMESPACE
+  namespace: $NAMESPACE_NAME
 EOF
 
 if [ $LB_CONTROLLER == true ]; then
-  echo "  annotations:"  >> service.yaml
-    if [ -n "$LB_TYPE" ]; then
-    echo "    service.beta.kubernetes.io/aws-load-balancer-type: $LB_TYPE" >> service.yaml
-    fi
-    if [ -n "$NLB_TARGET_TYPE" ]; then
-    echo "    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: $NLB_TARGET_TYPE" >> service.yaml
-    fi
-    if [ -n "$LB_SCHEME" ]; then
-    echo "    service.beta.kubernetes.io/aws-load-balancer-scheme: $LB_SCHEME" >> service.yaml
-    fi
-    if [ -n "$LB_SUBNETS" ]; then
+  cat <<EOF >> service.yaml
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: external
+      service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+      service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+EOF
+
+  if [ -n "$LB_SUBNETS" ]; then
     echo "    service.beta.kubernetes.io/aws-load-balancer-subnets: $LB_SUBNETS" >> service.yaml
-    fi
+  fi
 fi
 
 cat <<EOF >> service.yaml
   labels:
-    $SVC_LABEL_KEY: $SVC_LABEL_VALUE
+    quest: $TITLE
 spec:
   selector:
-    $SVC_SELECTOR_KEY: $SVC_SELECTOR_VALUE
+    quest: $TITLE
   ports:
-    - protocol: $SVC_PROTOCOL
-      port: $SVC_PORT
-      targetPort: $SVC_TARGETPORT
+    - protocol: TCP
+      port: $PORT
+      targetPort: $PORT
   type: LoadBalancer
 EOF
+#provisioning의 TITLE과 통일
 
 
 # deployment
-DEPLOY_NAME=$NAME-deploy
-DEPLOY_CONTAINER_NAME==$NAME-ctn
-
 cat <<EOF > deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: $DEPLOY_NAME
-  namespace: $AWS_NAMESPACE
+  namespace: $NAMESPACE_NAME
   labels:
-    $DEPLOY_LABEL_KEY: $DEPLOY_LABEL_VALUE
+    quest: $TITLE
 spec:
   replicas: $DEPLOY_REPLICAS
   selector:
     matchLabels:
-      $DEPLOY_SELECTOR_KEY: $DEPLOY_SELECTOR_VALUE
+      quest: $TITLE
   template:
     metadata:
       labels:
-        $DEPLOY_POD_LABEL_KEY: $DEPLOY_PDO_LABEL_VALUE
+        quest: $TITLE
     spec:
       containers:
-      - name: $DEPLOY_CONTAINER_NAME
+      - name: $APP_NAME   # 임의로 이름 지정 - 따로 입력받을 예정
         image: $DEPLOY_CONTAINER_IMAGE
         ports:
-        - containerPort: $DEPLOY_CONTAINER_PORT
+        - containerPort: $PORT
 EOF
 
+kubectl apply -f secret.yaml
+if [ $? -ne 0 ]; then
+  echo "Failed to apply secert configuration."
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply secret configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
+  exit 1
+fi
 
 kubectl apply -f service.yaml 
 if [ $? -ne 0 ]; then
