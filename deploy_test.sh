@@ -247,12 +247,12 @@ spec:
         - containerPort: $PORT
 EOF
 
-kubectl apply -f secret.yaml
-if [ $? -ne 0 ]; then
-  echo "Failed to apply secert configuration."
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply secret configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
-  exit 1
-fi
+#kubectl apply -f secret.yaml
+#if [ $? -ne 0 ]; then
+#  echo "Failed to apply secert configuration."
+#  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply secret configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
+#  exit 1
+#fi
 
 kubectl apply -f service.yaml 
 if [ $? -ne 0 ]; then
