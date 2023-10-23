@@ -248,7 +248,7 @@ spec:
 EOF
 #provisioning의 TITLE과 통일
 
-cat servcie.yaml
+cat service.yaml
 
 # deployment
 cat <<EOF > deployment.yaml
