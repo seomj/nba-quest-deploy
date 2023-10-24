@@ -1,32 +1,5 @@
 #!/bin/bash
 
-# test용 변수들
-APP_NAME=test-ctn
-SVC_NAME=test-svc
-DEPLOY_NAME=test-deploy
-NAMESPACE_NAME=eks-test
-TITLE=seomj   #provisioning의 TITLE과 통일
-SECRET='[{"KEY":1,"VALUE":2},{"KEY":3,"VALUE":4},{"KEY":5,"VALUE":6}]'
-COUNT='3'
-
-# aws configure function
-function aws_confingure(){
-  aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID" && \
-  aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" && \
-  aws configure set default.region "$AWS_DEFAULT_REGION" && \
-  aws configure set default.output "$AWS_OUTPUT_FORMAT"
-
-  # Error 발생 시
-    if [ $? -ne 0 ]; then
-      echo "AWS configure가 제대로 수행되지 않았습니다."
-      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"AWS configure가 제대로 수행되지 않았습니다"}' -H "Content-Type: application/json" $API_ENDPOINT
-      exit 1
-    else
-      echo "AWS configure가 제대로 수행되었습니다."
-    fi
-}
-
-
 # create LB function
 function create_lb(){
   eksctl utils associate-iam-oidc-provider --region=$AWS_DEFAULT_REGION --cluster=$AWS_EKS_NAME --approve
@@ -50,17 +23,9 @@ function create_lb(){
     exit 1
   fi
 
-  # repo
-  helm repo add eks https://aws.github.io/eks-charts && helm repo update eks
-
-  #error
-  if [ $? -ne 0 ]; then
-    echo "helm으로 Repo를 가져오거나 업데이트할 수 없다."
-    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"helm으로 Repo를 가져오거나 업데이트할 수 없다."}' -H "Content-Type: application/json" $API_ENDPOINT
-    exit 1
-  fi
-
   # install
+  helm repo add eks https://aws.github.io/eks-charts && \
+  helm repo update eks && \
   helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
     -n kube-system \
     --set clusterName=$AWS_EKS_NAME \
@@ -74,23 +39,6 @@ function create_lb(){
     exit 1
   fi
 }
-
-
-# check aws configure
-# AWS credentials file path
-AWS_CREDENTIALS_FILE="$HOME/.aws/credentials"
-
-if [ -f "$AWS_CREDENTIALS_FILE" ]; then
-  # Extract aws_access_key_id and aws_secret_access_key
-  ACCESS_KEY_ID=$(grep -A2 "\[default\]" "$AWS_CREDENTIALS_FILE" | grep aws_access_key_id | awk '{print $3}')
-  SECRET_ACCESS_KEY=$(grep -A2 "\[default\]" "$AWS_CREDENTIALS_FILE" | grep aws_secret_access_key | awk '{print $3}')
-  
-  if [ "$ACCESS_KEY_ID" != "$AWS_ACCESS_KEY_ID" ] || [ "$SECRET_ACCESS_KEY" != "$SECRET_ACCESS_KEY" ]; then
-    aws_confingure
-  fi
-else
-  aws_confingure
-fi
 
 
 # kubeconfig
@@ -178,7 +126,8 @@ fi
 
 
 # secret
-cat <<EOF > secret.yaml
+if [ -n "$SECRET" ]; then
+  cat <<EOF > secret.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -188,16 +137,17 @@ type: Opaque
 data:
 EOF
 
-# base64
-for item in $(echo "$SECRET" | jq -c '.[]'); do
-  key=$(echo "$item" | jq -r '.KEY')
-  value=$(echo "$item" | jq -r '.VALUE')
-  base64_value=$(echo -n "$value" | base64)
-  
-  cat << EOF >> secret.yaml
+  # base64
+  for item in $(echo "$SECRET" | jq -c '.[]'); do
+    key=$(echo "$item" | jq -r '.KEY')
+    value=$(echo "$item" | jq -r '.VALUE')
+    base64_value=$(echo -n "$value" | base64)
+    
+    cat << EOF >> secret.yaml
   $key: $base64_value
 EOF
-done
+  done
+fi
 
 
 # svc
@@ -207,27 +157,10 @@ kind: Service
 metadata:
   name: $SVC_NAME
   namespace: $NAMESPACE_NAME
-EOF
-
-LB_SUBNETS=""
-
-for ((i=1; i<=$COUNT; i++));
-do
-  LB_SUBNETS+="$TITLE-public-subnet-$i"
-  if [ $i -lt $COUNT ]; then
-    LB_SUBNETS+=", "
-  fi
-done
-
-cat <<EOF >> service.yaml
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-type: external
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
-    service.beta.kubernetes.io/aws-load-balancer-subnets: $LB_SUBNETS
-EOF
-
-cat <<EOF >> service.yaml
   labels:
     quest: $TITLE
 spec:
@@ -239,7 +172,6 @@ spec:
       targetPort: $PORT
   type: LoadBalancer
 EOF
-#provisioning의 TITLE과 통일
 
 
 # deployment
@@ -262,7 +194,7 @@ spec:
         quest: $TITLE
     spec:
       containers:
-      - name: $APP_NAME
+      - name: $TITLE-ctn
         image: $DEPLOY_CONTAINER_IMAGE
         ports:
         - containerPort: $PORT
@@ -270,7 +202,6 @@ spec:
         - secretRef:
             name: $TITLE-secret
 EOF
-# $APP_NAME 수정 필요
 
 kubectl apply -f secret.yaml
 if [ $? -ne 0 ]; then
