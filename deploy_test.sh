@@ -146,7 +146,14 @@ EOF
     cat << EOF >> secret.yaml
   $key: $base64_value
 EOF
+  kubectl apply -f secret.yaml
   done
+fi
+
+if [ $? -ne 0 ]; then
+  echo "secert 실패"
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"secert 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+  exit 1
 fi
 
 
@@ -202,13 +209,6 @@ spec:
         - secretRef:
             name: $TITLE-secret
 EOF
-
-kubectl apply -f secret.yaml
-if [ $? -ne 0 ]; then
-  echo "secert 실패"
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"secert 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
-  exit 1
-fi
 
 kubectl apply -f service.yaml 
 if [ $? -ne 0 ]; then
