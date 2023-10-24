@@ -11,69 +11,67 @@ COUNT='3'
 
 # aws configure function
 function aws_confingure(){
-  aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
-  aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
-  aws configure set default.region "$AWS_DEFAULT_REGION"
+  aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID" && \
+  aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY" && \
+  aws configure set default.region "$AWS_DEFAULT_REGION" && \
   aws configure set default.output "$AWS_OUTPUT_FORMAT"
 
   # Error 발생 시
     if [ $? -ne 0 ]; then
-      echo "Failed to configure AWS CLI."
-      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to configure AWS CLI."}' -H "Content-Type: application/json" $API_ENDPOINT
+      echo "AWS configure가 제대로 수행되지 않았습니다."
+      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"AWS configure가 제대로 수행되지 않았습니다"}' -H "Content-Type: application/json" $API_ENDPOINT
       exit 1
     else
-      echo "AWS CLI configured successfully."
+      echo "AWS configure가 제대로 수행되었습니다."
     fi
 }
 
+
 # create LB function
 function create_lb(){
-  if [ "$LB_CONTROLLER" == true ]; then
+  eksctl utils associate-iam-oidc-provider --region=$AWS_DEFAULT_REGION --cluster=$AWS_EKS_NAME --approve
+  
+  # IAM Role
+  AWS_USER_ID=$(aws sts get-caller-identity | jq -r .UserId)
 
-    eksctl utils associate-iam-oidc-provider --region=$AWS_DEFAULT_REGION --cluster=$AWS_EKS_NAME --approve
-    
-    # IAM Role
-    AWS_USER_ID=$(aws sts get-caller-identity | jq -r .UserId)
+  eksctl create iamserviceaccount \
+    --cluster=$AWS_EKS_NAME \
+    --namespace=kube-system \
+    --region=$AWS_DEFAULT_REGION \
+    --name=aws-load-balancer-controller \
+    --role-name AmazonEKSLoadBalancerControllerRole \
+    --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/AWSLoadBalancerControllerIAMPolicy \
+    --approve
 
-    eksctl create iamserviceaccount \
-      --cluster=$AWS_EKS_NAME \
-      --namespace=kube-system \
-      --region=$AWS_DEFAULT_REGION \
-      --name=aws-load-balancer-controller \
-      --role-name AmazonEKSLoadBalancerControllerRole \
-      --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/AWSLoadBalancerControllerIAMPolicy \
-      --approve
+  # error
+  if [ $? -ne 0 ]; then
+    echo "SA 생성 실패"
+    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"SA 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+    exit 1
+  fi
 
-    # error
-    if [ $? -ne 0 ]; then
-      echo "Failed to create IAM service account."
-      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to create IAM service account."}' -H "Content-Type: application/json" $API_ENDPOINT
-      exit 1
-    fi
+  # repo
+  helm repo add eks https://aws.github.io/eks-charts && helm repo update eks
 
-    # repo
-    helm repo add eks https://aws.github.io/eks-charts && helm repo update eks
+  #error
+  if [ $? -ne 0 ]; then
+    echo "helm으로 Repo를 가져오거나 업데이트할 수 없다."
+    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"helm으로 Repo를 가져오거나 업데이트할 수 없다."}' -H "Content-Type: application/json" $API_ENDPOINT
+    exit 1
+  fi
 
-    #error
-    if [ $? -ne 0 ]; then
-      echo "Failed to add Helm repository or update."
-      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to add Helm repository or update."}' -H "Content-Type: application/json" $API_ENDPOINT
-      exit 1
-    fi
+  # install
+  helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
+    -n kube-system \
+    --set clusterName=$AWS_EKS_NAME \
+    --set serviceAccount.create=false \
+    --set serviceAccount.name=aws-load-balancer-controller && sleep 10
 
-    # install
-    helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-      -n kube-system \
-      --set clusterName=$AWS_EKS_NAME \
-      --set serviceAccount.create=false \
-      --set serviceAccount.name=aws-load-balancer-controller && sleep 10
-
-    # error
-    if [ $? -ne 0 ]; then
-      echo "Failed to install AWS Load Balancer Controller using Helm."
-      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to install AWS Load Balancer Controller using Helm."}' -H "Content-Type: application/json" $API_ENDPOINT
-      exit 1
-    fi
+  # error
+  if [ $? -ne 0 ]; then
+    echo "Load Balancer Controller 설치에 실패했습니다."
+    curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load Balancer Controller 설치에 실패했습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
+    exit 1
   fi
 }
 
@@ -81,12 +79,11 @@ function create_lb(){
 # check aws configure
 # AWS credentials file path
 AWS_CREDENTIALS_FILE="$HOME/.aws/credentials"
-PROFILE_NAME="default"
 
 if [ -f "$AWS_CREDENTIALS_FILE" ]; then
   # Extract aws_access_key_id and aws_secret_access_key
-  ACCESS_KEY_ID=$(grep -A2 "\[$PROFILE_NAME\]" "$AWS_CREDENTIALS_FILE" | grep aws_access_key_id | awk '{print $3}')
-  SECRET_ACCESS_KEY=$(grep -A2 "\[$PROFILE_NAME\]" "$AWS_CREDENTIALS_FILE" | grep aws_secret_access_key | awk '{print $3}')
+  ACCESS_KEY_ID=$(grep -A2 "\[default\]" "$AWS_CREDENTIALS_FILE" | grep aws_access_key_id | awk '{print $3}')
+  SECRET_ACCESS_KEY=$(grep -A2 "\[default\]" "$AWS_CREDENTIALS_FILE" | grep aws_secret_access_key | awk '{print $3}')
   
   if [ "$ACCESS_KEY_ID" != "$AWS_ACCESS_KEY_ID" ] || [ "$SECRET_ACCESS_KEY" != "$SECRET_ACCESS_KEY" ]; then
     aws_confingure
@@ -106,8 +103,8 @@ for EKS in $EKS_LIST; do
     echo "Kubeconfig updated successfully for EKS cluster '$AWS_EKS_NAME'."
     # Error 발생 시
     if [ $? -ne 0 ]; then
-      echo "Failed to update kubeconfig for EKS cluster '$AWS_EKS_NAME'."
-      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to update kubeconfig for EKS cluster '$AWS_EKS_NAME'."}' -H "Content-Type: application/json" $API_ENDPOINT
+      echo "'$AWS_EKS_NAME'의 kubeconfig로 업데이트할 수 없습니다."
+      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"'$AWS_EKS_NAME'의 kubeconfig로 업데이트할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
       exit 1
     fi
     # eks가 있다면 true
@@ -118,8 +115,8 @@ done
 
 # eks가 없다면
 if [ "$EKS_EXIST" == false ]; then
-  echo "EKS cluster '$AWS_EKS_NAME' not found in region '$AWS_DEFAULT_REGION'."
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"EKS cluster '$AWS_EKS_NAME' not found in region '$AWS_DEFAULT_REGION'."}' -H "Content-Type: application/json" $API_ENDPOINT
+  echo "'$AWS_EKS_NAME'를 찾을 수 없습니다."
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"'$AWS_EKS_NAME'를 찾을 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
@@ -128,31 +125,28 @@ fi
 DEPLOYMENT_LIST=$(kubectl get deployments -n kube-system -o custom-columns="NAME:.metadata.name" --no-headers)
 LBC_EXIST=false
 
-# LB Controller를 사용한다면 NLB 생성
-if [ "$LB_CONTROLLER" == true ]; then
-  # LBC가 있는지 확인
-  for DEPLOYMENT in $DEPLOYMENT_LIST; do
-    if [ "$DEPLOYMENT" == "aws-load-balancer-controller" ]; then
-      LBC_EXIST=true
-      break
-    fi
-  done
-  
-  # LBC가 없다면 Create LB
-  if [ "$LBC_EXIST" == false ]; then
-    create_lb
+# LBC가 있는지 확인
+for DEPLOYMENT in $DEPLOYMENT_LIST; do
+  if [ "$DEPLOYMENT" == "aws-load-balancer-controller" ]; then
+    LBC_EXIST=true
+    break
   fi
+done
 
-  # LBC가 잘 돌아가는지 확인
-  LB_STATUS=$(kubectl get deployment -n kube-system aws-load-balancer-controller -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+# LBC가 없다면 Create LB
+if [ "$LBC_EXIST" == false ]; then
+  create_lb
+fi
 
-  if [ "$LB_STATUS" != True ]; then
-    echo "Load balancer controller is not available."
-    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load balancer controller is not available."}' -H "Content-Type: application/json" $API_ENDPOINT
-    exit 1
-  else
-    echo "Load balancer controller is available."
-  fi
+# LBC가 잘 돌아가는지 확인
+LB_STATUS=$(kubectl get deployment -n kube-system aws-load-balancer-controller -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
+
+if [ "$LB_STATUS" != True ]; then
+  echo "Load balancer controller를 사용할 수 없습니다."
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load balancer controller를 사용할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
+  exit 1
+else
+  echo "Load balancer controller is available."
 fi
 
 
@@ -172,8 +166,8 @@ done
 if [ "$NS_EXIST" == false ]; then
   kubectl create namespace "$NAMESPACE_NAME"
   if [ $? -ne 0 ]; then
-    echo "Failed to create namespace."
-    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load balancer controller is not available."}' -H "Content-Type: application/json" $API_ENDPOINT
+    echo "namespace 생성 실패"
+    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"namespace 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   else
     echo "Namespace created successfully."
@@ -181,6 +175,7 @@ if [ "$NS_EXIST" == false ]; then
 else
   echo "Namespace $NAMESPACE_NAME already exists."
 fi
+
 
 # secret
 cat <<EOF > secret.yaml
@@ -218,21 +213,19 @@ LB_SUBNETS=""
 
 for ((i=1; i<=$COUNT; i++));
 do
-  LB_SUBNETS+="PUBLIC-SUBNET-$i"
+  LB_SUBNETS+="$TITLE-public-subnet-$i"
   if [ $i -lt $COUNT ]; then
     LB_SUBNETS+=", "
   fi
 done
 
-if [ $LB_CONTROLLER == true ]; then
-  cat <<EOF >> service.yaml
+cat <<EOF >> service.yaml
   annotations:
     service.beta.kubernetes.io/aws-load-balancer-type: external
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
     service.beta.kubernetes.io/aws-load-balancer-subnets: $LB_SUBNETS
 EOF
-fi
 
 cat <<EOF >> service.yaml
   labels:
@@ -248,7 +241,6 @@ spec:
 EOF
 #provisioning의 TITLE과 통일
 
-cat service.yaml
 
 # deployment
 cat <<EOF > deployment.yaml
@@ -270,7 +262,7 @@ spec:
         quest: $TITLE
     spec:
       containers:
-      - name: $APP_NAME   # 임의로 이름 지정 - 따로 입력받을 예정
+      - name: $APP_NAME
         image: $DEPLOY_CONTAINER_IMAGE
         ports:
         - containerPort: $PORT
@@ -278,28 +270,29 @@ spec:
         - secretRef:
             name: $TITLE-secret
 EOF
+# $APP_NAME 수정 필요
 
 kubectl apply -f secret.yaml
 if [ $? -ne 0 ]; then
-  echo "Failed to apply secert configuration."
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply secret configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
+  echo "secert 실패"
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"secert 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
 kubectl apply -f service.yaml 
 if [ $? -ne 0 ]; then
-  echo "Failed to apply service configuration."
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply service configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
+  echo "service 실패"
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"service 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
 kubectl apply -f deployment.yaml 
 if [ $? -ne 0 ]; then
-  echo "Failed to apply deployment configuration."
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Failed to apply deployment configuration."}' -H "Content-Type: application/json" $API_ENDPOINT
+  echo "deployment 실패"
+  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"deployment 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
 # 작업 종료
-echo "Success Deploy!"
-#curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Success","emessage":"Success Deploy!"}' -H "Content-Type: application/json" $API_ENDPOINT
+echo "배포 성공!"
+#curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Success","emessage":"배포 성공!"}' -H "Content-Type: application/json" $API_ENDPOINT
