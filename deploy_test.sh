@@ -19,7 +19,7 @@ function create_lb(){
   # error
   if [ $? -ne 0 ]; then
     echo "========== SA 생성 실패 =========="
-    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"SA 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+    curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"SA 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   fi
 
@@ -52,7 +52,7 @@ for EKS in $EKS_LIST; do
     # Error 발생 시
     if [ $? -ne 0 ]; then
       echo "========== '$AWS_EKS_NAME'의 kubeconfig로 업데이트할 수 없습니다. =========="
-      #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"'$AWS_EKS_NAME'의 kubeconfig로 업데이트할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
+      curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"'$AWS_EKS_NAME'의 kubeconfig로 업데이트할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
       exit 1
     fi
     # eks가 있다면 true
@@ -64,7 +64,7 @@ done
 # eks가 없다면
 if [ "$EKS_EXIST" == false ]; then
   echo "========== '$AWS_EKS_NAME'를 찾을 수 없습니다. =========="
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"'$AWS_EKS_NAME'를 찾을 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
+  curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"'$AWS_EKS_NAME'를 찾을 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
@@ -91,7 +91,7 @@ LB_STATUS=$(kubectl get deployment -n kube-system aws-load-balancer-controller -
 
 if [ "$LB_STATUS" != True ]; then
   echo "========== Load balancer controller를 사용할 수 없습니다. =========="
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load balancer controller를 사용할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
+  curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"Load balancer controller를 사용할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 else
   echo "========== Load balancer controller is available. =========="
@@ -115,7 +115,7 @@ if [ "$NS_EXIST" == false ]; then
   kubectl create namespace "$NAMESPACE_NAME"
   if [ $? -ne 0 ]; then
     echo "========== namespace 생성 실패 =========="
-    #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"namespace 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+    curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"namespace 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   else
     echo "========== Namespace created successfully. =========="
@@ -147,13 +147,12 @@ EOF
   $key: $base64_value
 EOF
   kubectl apply -f secret.yaml
+  if [ $? -ne 0 ]; then
+    echo "========== secert 실패 =========="
+    curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"secert 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+    exit 1
+  fi
   done
-fi
-
-if [ $? -ne 0 ]; then
-  echo "========== secert 실패 =========="
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"secert 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
-  exit 1
 fi
 
 
@@ -213,17 +212,17 @@ EOF
 kubectl apply -f service.yaml 
 if [ $? -ne 0 ]; then
   echo "========== service 실패 =========="
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"service 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+  curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"service 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
 kubectl apply -f deployment.yaml 
 if [ $? -ne 0 ]; then
   echo "========== deployment 실패 =========="
-  #curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"deployment 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+  curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Failed","emessage":"deployment 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
 fi
 
 # 작업 종료
 echo "========== 배포 성공! =========="
-#curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Success","emessage":"배포 성공!"}' -H "Content-Type: application/json" $API_ENDPOINT
+curl -i -X POST -d '{"id":'$ID',"progress":"deployment","state":"Success","emessage":"배포 성공!"}' -H "Content-Type: application/json" $API_ENDPOINT
