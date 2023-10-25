@@ -18,7 +18,9 @@ RUN curl -O https://s3.us-west-2.amazonaws.com/amazon-eks/1.27.4/2023-08-16/bin/
 #awscli
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
     unzip awscliv2.zip && \
-    ./aws/install
+    ./aws/install && \
+    rm -r awscliv2.zip && \
+    rm -r aws/
 
 #eksctl
 RUN PLATFORM=$(uname -s)_$ARCH && \
