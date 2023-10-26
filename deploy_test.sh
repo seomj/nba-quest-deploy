@@ -1,46 +1,5 @@
 #!/bin/bash
 
-# create LB function
-function create_lb(){
-  eksctl utils associate-iam-oidc-provider --region=$AWS_DEFAULT_REGION --cluster=$AWS_EKS_NAME --approve
-  
-  # IAM Role
-  AWS_USER_ID=$(aws sts get-caller-identity | jq -r .UserId)
-
-  eksctl create iamserviceaccount \
-    --cluster=$AWS_EKS_NAME \
-    --namespace=kube-system \
-    --region=$AWS_DEFAULT_REGION \
-    --name=aws-load-balancer-controller \
-    --role-name AmazonEKSLoadBalancerControllerRole \
-    --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/AWSLoadBalancerControllerIAMPolicy \
-    --approve
-
-  # error
-  if [ $? -ne 0 ]; then
-    echo "========== SA 생성 실패 =========="
-    curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"SA 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
-    exit 1
-  fi
-
-  # install
-  helm repo add eks https://aws.github.io/eks-charts && \
-  helm repo update eks && \
-  helm install aws-load-balancer-controller eks/aws-load-balancer-controller \
-    -n kube-system \
-    --set clusterName=$AWS_EKS_NAME \
-    --set serviceAccount.create=false \
-    --set serviceAccount.name=aws-load-balancer-controller && sleep 10
-
-  # error
-  if [ $? -ne 0 ]; then
-    echo "========== Load Balancer Controller 설치에 실패했습니다. =========="
-    curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"Load Balancer Controller 설치에 실패했습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
-    exit 1
-  fi
-}
-
-
 # kubeconfig
 EKS_LIST=$(aws eks list-clusters --region $AWS_DEFAULT_REGION | jq -r '.clusters[]')
 EKS_EXIST=false
@@ -66,35 +25,6 @@ if [ "$EKS_EXIST" == false ]; then
   echo "========== '$AWS_EKS_NAME'를 찾을 수 없습니다. =========="
   curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"'$AWS_EKS_NAME'를 찾을 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
-fi
-
-
-# NLB
-DEPLOYMENT_LIST=$(kubectl get deployments -n kube-system -o custom-columns="NAME:.metadata.name" --no-headers)
-LBC_EXIST=false
-
-# LBC가 있는지 확인
-for DEPLOYMENT in $DEPLOYMENT_LIST; do
-  if [ "$DEPLOYMENT" == "aws-load-balancer-controller" ]; then
-    LBC_EXIST=true
-    break
-  fi
-done
-
-# LBC가 없다면 Create LB
-if [ "$LBC_EXIST" == false ]; then
-  create_lb
-fi
-
-# LBC가 잘 돌아가는지 확인
-LB_STATUS=$(kubectl get deployment -n kube-system aws-load-balancer-controller -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
-
-if [ "$LB_STATUS" != True ]; then
-  echo "========== Load balancer controller를 사용할 수 없습니다. =========="
-  curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"Load balancer controller를 사용할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
-  exit 1
-else
-  echo "========== Load balancer controller is available. =========="
 fi
 
 
@@ -136,23 +66,25 @@ metadata:
 type: Opaque
 data:
 EOF
+  # 형식 변환
+  converted_string=$(echo "$SECRET" | sed "s/'/\"/g")
 
   # base64
-  for item in $(echo "$SECRET" | jq -c '.[]'); do
-    key=$(echo "$item" | jq -r '.KEY')
-    value=$(echo "$item" | jq -r '.VALUE')
+  for item in $(echo $converted_string | jq -c '.[]'); do
+    key=$(echo "$item" | jq -r '.key')
+    value=$(echo "$item" | jq -r '.value')
     base64_value=$(echo -n "$value" | base64)
-    
     cat << EOF >> secret.yaml
   $key: $base64_value
 EOF
+  done
+
   kubectl apply -f secret.yaml
   if [ $? -ne 0 ]; then
     echo "========== secert 실패 =========="
     curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"secert 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   fi
-  done
 fi
 
 
