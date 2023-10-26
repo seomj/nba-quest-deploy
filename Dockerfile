@@ -35,5 +35,5 @@ RUN chmod 700 get_helm.sh
 RUN ./get_helm.sh
 
 #sh
-COPY deploy_test.sh /deploy/deploy_test.sh
-RUN chmod +x /deploy/deploy_test.sh
+COPY deploy.sh /deploy/deploy.sh
+RUN chmod +x /deploy/deploy.sh
