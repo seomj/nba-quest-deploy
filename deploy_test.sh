@@ -168,10 +168,10 @@ metadata:
     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
   labels:
-    quest: $TITLE
+    app: quest
 spec:
   selector:
-    quest: $TITLE
+    app: quest
   ports:
     - protocol: TCP
       port: $PORT
@@ -188,22 +188,27 @@ metadata:
   name: $DEPLOY_NAME
   namespace: $NAMESPACE_NAME
   labels:
-    quest: $TITLE
+    app: quest
 spec:
   replicas: $DEPLOY_REPLICAS
   selector:
     matchLabels:
-      quest: $TITLE
+      app: quest
   template:
     metadata:
       labels:
-        quest: $TITLE
+        app: quest
     spec:
       containers:
       - name: $TITLE-ctn
         image: $DEPLOY_CONTAINER_IMAGE
         ports:
         - containerPort: $PORT
+EOF
+
+# secret이 있으면 추가
+if [ -n "$SECRET" ]; then
+  cat <<EOF >> deployment.yaml
         envFrom:
         - secretRef:
             name: $TITLE-secret
