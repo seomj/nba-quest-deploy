@@ -95,10 +95,6 @@ kind: Service
 metadata:
   name: $SVC_NAME
   namespace: $NAMESPACE_NAME
-  annotations:
-    service.beta.kubernetes.io/aws-load-balancer-type: external
-    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-    service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
   labels:
     app: quest
 spec:
@@ -145,6 +141,7 @@ if [ -n "$SECRET" ]; then
         - secretRef:
             name: $TITLE-secret
 EOF
+fi
 
 kubectl apply -f service.yaml 
 if [ $? -ne 0 ]; then
