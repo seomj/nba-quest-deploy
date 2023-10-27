@@ -7,18 +7,27 @@ function create_lb(){
   # IAM Role
   AWS_USER_ID=$(aws sts get-caller-identity | jq -r .UserId)
 
+  # check role name
+  if [ "$LB_ROLE" == True ]; then
+    random=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | sed 1q)
+    AWS_LBC_ROLE=AmazonEKSLoadBalancerControllerRoleQUEST-$random
+  else
+    AWS_LBC_ROLE=AmazonEKSLoadBalancerControllerRoleQUEST
+  fi
+
   eksctl create iamserviceaccount \
     --cluster=$AWS_EKS_NAME \
     --namespace=kube-system \
     --region=$AWS_DEFAULT_REGION \
     --name=aws-load-balancer-controller \
     --role-name $AWS_LBC_ROLE \
-    --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/AWSLoadBalancerControllerIAMPolicy \
+    --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/AWSLoadBalancerControllerIAMPolicyQUEST \
     --approve
 
   # error
   if [ $? -ne 0 ]; then
     echo "========== SA 생성 실패 =========="
+    eksctl delete iamserviceaccount --cluster=$AWS_EKS_NAME --namespace=kube-system --name=aws-load-balancer-controller
     curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"SA 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   fi
@@ -30,14 +39,46 @@ function create_lb(){
     -n kube-system \
     --set clusterName=$AWS_EKS_NAME \
     --set serviceAccount.create=false \
-    --set serviceAccount.name=aws-load-balancer-controller && sleep 10
+    --set serviceAccount.name=aws-load-balancer-controller && sleep 20
 
   # error
   if [ $? -ne 0 ]; then
     echo "========== Load Balancer Controller 설치에 실패했습니다. =========="
+    helm uninstall aws-load-balancer-controller -n kube-system
+    eksctl delete iamserviceaccount --cluster=$AWS_EKS_NAME --namespace=kube-system --name=aws-load-balancer-controller
     curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"Load Balancer Controller 설치에 실패했습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   fi
+}
+
+function public_ecr(){
+  aws configure set default.region "us-east-1"
+
+  TAGS_JSON=$(aws ecr-public describe-images --repository-name $AWS_ECR_REPO)
+  TAGS_LIST=($(echo $TAGS_JSON | jq -r '.imageDetails[].imageTags[]'))
+  
+  # tag 값 있는지 확인
+  for tag in "${TAGS_LIST[@]}"; do
+    if [ $tag == $AWS_ECR_REPO_TAG ]; then
+      IMAGE_PUB_EXIST=true
+      break
+    fi
+  done
+
+  aws configure set default.region "$AWS_DEFAULT_REGION"
+}
+
+function private_ecr(){
+  TAGS_JSON_PRI=$(aws ecr list-images --repository-name $AWS_ECR_REPO)
+  TAGS_LIST_PRI=($(echo $TAGS_JSON_PRI | jq -r '.imageIds[].imageTag'))
+
+  # tag 값 있는지 확인
+  for tag in "${TAGS_LIST_PRI[@]}"; do
+    if [ $tag == $AWS_ECR_REPO_TAG ]; then
+      IMAGE_PRI_EXIST=true
+      break
+    fi
+  done
 }
 
 
@@ -71,30 +112,38 @@ fi
 
 # NLB
 DEPLOYMENT_LIST=$(kubectl get deployments -n kube-system -o custom-columns="NAME:.metadata.name" --no-headers)
-LBC_EXIST=false
-
-# LBC가 있는지 확인
-for DEPLOYMENT in $DEPLOYMENT_LIST; do
-  if [ "$DEPLOYMENT" == "aws-load-balancer-controller" ]; then
-    LBC_EXIST=true
-    break
-  fi
-done
-
-# LBC가 없다면 Create LB
-if [ "$LBC_EXIST" == false ]; then
-  create_lb
-fi
-
-# LBC가 잘 돌아가는지 확인
 LB_STATUS=$(kubectl get deployment -n kube-system aws-load-balancer-controller -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
 
-if [ "$LB_STATUS" != True ]; then
+while [ "$LB_STATUS" != True ]
+do
+  LBC_EXIST=false
+
+  # LBC가 있는지 확인
+  for DEPLOYMENT in $DEPLOYMENT_LIST; do
+    # LBC가 있다면
+    if [ "$DEPLOYMENT" == "aws-load-balancer-controller" ]; then
+      LBC_EXIST=true
+      break
+    fi
+  done
+
+  # LBC가 없다면
+  if [ "$LBC_EXIST" == false ]; then
+    create_lb
+  # LBC가 있다면
+  else
+    # 아예 내리고 새로 생성?
+    # error 반환?
+  fi
+done 
+
+# 한번 더 점검
+if [ "$LB_STATUS" == True ]; then
+  echo "========== Load balancer controller is available. =========="
+else
   echo "========== Load balancer controller를 사용할 수 없습니다. =========="
   curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"Load balancer controller를 사용할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
   exit 1
-else
-  echo "========== Load balancer controller is available. =========="
 fi
 
 
@@ -122,6 +171,31 @@ if [ "$NS_EXIST" == false ]; then
   fi
 else
   echo "========== Namespace $NAMESPACE_NAME already exists. =========="
+fi
+
+# check image
+AWS_ECR_REPO=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d ":" -f 1)
+AWS_ECR_REPO_TAG=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d ":" -f 2)
+
+
+IMAGE_PUB_EXIST=false
+IMAGE_PRI_EXIST=false
+
+# public 검색
+public_ecr
+
+# public에 없다면 private 검색
+if [ $IMAGE_PUB_EXIST != true ]; then
+  private_ecr
+fi
+
+# 이미지가 존재하지 않는다면
+if [ $IMAGE_PUB_EXIST == false ] && [ $IMAGE_PRI_EXIST == false ]; then
+  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' does not exist. =========="
+  # curl
+  exit 1
+else
+  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' exists. =========="
 fi
 
 
