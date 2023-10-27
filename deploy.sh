@@ -95,21 +95,21 @@ IMAGE_PUB_EXIST=false
 IMAGE_PRI_EXIST=false
 
 # public 검색
-public_ecr
+#public_ecr
 
 # public에 없다면 private 검색
-if [ $IMAGE_PUB_EXIST != true ]; then
-  private_ecr
-fi
+#if [ $IMAGE_PUB_EXIST != true ]; then
+#  private_ecr
+#fi
 
 # 이미지가 존재하지 않는다면
-if [ $IMAGE_PUB_EXIST == false ] && [ $IMAGE_PRI_EXIST == false ]; then
-  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' does not exist. =========="
+#if [ $IMAGE_PUB_EXIST == false ] && [ $IMAGE_PRI_EXIST == false ]; then
+#  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' does not exist. =========="
   # curl
-  exit 1
-else
-  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' exists. =========="
-fi
+#  exit 1
+#else
+#  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' exists. =========="
+#fi
 
 
 # kubeconfig
