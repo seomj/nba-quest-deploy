@@ -29,7 +29,7 @@ function create_lb(){
 
   # error
   if [ $? -ne 0 ]; then
-    echo "========== SA 생성 실패 =========="
+    echo "========== SA 생성에 실패했습니다. =========="
     eksctl delete iamserviceaccount --cluster=$AWS_EKS_NAME --namespace=kube-system --name=aws-load-balancer-controller
     curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"SA 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
@@ -94,22 +94,25 @@ AWS_ECR_REPO_TAG=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d ":" -f 2)
 IMAGE_PUB_EXIST=false
 IMAGE_PRI_EXIST=false
 
+# docker hub 검색
+dockerhub_response=$(curl -s -o /dev/null -w "%{http_code}" https://hub.docker.com/v2/namespaces/choiwonwong/repositories/rapa/tags/main)
+
 # public 검색
-#public_ecr
+public_ecr
 
 # public에 없다면 private 검색
-#if [ $IMAGE_PUB_EXIST != true ]; then
-#  private_ecr
-#fi
+if [ $IMAGE_PUB_EXIST != true ]; then
+  private_ecr
+fi
 
 # 이미지가 존재하지 않는다면
-#if [ $IMAGE_PUB_EXIST == false ] && [ $IMAGE_PRI_EXIST == false ]; then
-#  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' does not exist. =========="
-  # curl
-#  exit 1
-#else
-#  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' exists. =========="
-#fi
+if [ $IMAGE_PUB_EXIST == false ] && [ $IMAGE_PRI_EXIST == false ] && [ $dockerhub_response != 200 ]; then
+  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' does not exist. =========="
+  curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"'$DEPLOY_CONTAINER_IMAGE'가 존재하지 않습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
+  exit 1
+else
+  echo "========== Image '$DEPLOY_CONTAINER_IMAGE' exists. =========="
+fi
 
 
 # kubeconfig
@@ -142,37 +145,22 @@ fi
 
 # NLB
 DEPLOYMENT_LIST=$(kubectl get deployments -n kube-system -o custom-columns="NAME:.metadata.name" --no-headers)
-LB_STATUS=$(kubectl get deployment -n kube-system aws-load-balancer-controller -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
 
-while [ "$LB_STATUS" != True ]
-do
-  LBC_EXIST=false
+LBC_EXIST=false
 
-  # LBC가 있는지 확인
-  for DEPLOYMENT in $DEPLOYMENT_LIST; do
-    # LBC가 있다면
-    if [ "$DEPLOYMENT" == "aws-load-balancer-controller" ]; then
-      LBC_EXIST=true
-      break
-    fi
-  done
-
-  # LBC가 없다면
-  if [ "$LBC_EXIST" == false ]; then
-    create_lb
+# LBC가 있는지 확인
+for DEPLOYMENT in $DEPLOYMENT_LIST; do
   # LBC가 있다면
-  else
-    echo "LBC가 있다."
+  if [ "$DEPLOYMENT" == "aws-load-balancer-controller" ]; then
+    LBC_EXIST=true
+    break
   fi
-done 
+done
 
-# 한번 더 점검
-if [ "$LB_STATUS" == True ]; then
-  echo "========== Load balancer controller is available. =========="
+if [ "$LBC_EXIST" == false ]; then
+  create_lb
 else
-  echo "========== Load balancer controller를 사용할 수 없습니다. =========="
-  curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"Load balancer controller를 사용할 수 없습니다."}' -H "Content-Type: application/json" $API_ENDPOINT
-  exit 1
+  echo "========== AWS Load Balancer Controller가 존재합니다. =========="
 fi
 
 
