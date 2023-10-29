@@ -3,11 +3,10 @@
 # title 소문자 변환
 TITLE=${TITLE,,}
 
-# create LB function
-function create_lb(){  
-  # IAM Role
-  AWS_USER_ID=$(aws sts get-caller-identity | jq -r .UserId)
+AWS_USER_ID=$(aws sts get-caller-identity | jq -r .UserId)
 
+# create LB function
+function create_lb(){
   eksctl utils associate-iam-oidc-provider --region=$AWS_DEFAULT_REGION --cluster=$AWS_EKS_NAME --approve
 
   if [ $? -ne 0 ]; then
@@ -96,7 +95,6 @@ EOF
     --set serviceAccount.name=aws-load-balancer-controller && sleep 20
 
   # error
-  # 0으로 잘 들어가는지 체크 필요
   if [ $? -ne 0 ]; then
     echo "========== Load Balancer Controller 설치에 실패했습니다. =========="
     helm uninstall aws-load-balancer-controller -n kube-system
@@ -152,7 +150,6 @@ function dockerhub(){
 
 # check image
 AWS_ECR_REPO_TAG=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d ":" -f 2)
-
 
 IMAGE_PUB_EXIST=false
 IMAGE_PRI_EXIST=false
