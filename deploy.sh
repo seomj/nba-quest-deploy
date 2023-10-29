@@ -4,13 +4,41 @@
 TITLE=${TITLE,,}
 
 # create LB function
-function create_lb(){
-  eksctl utils associate-iam-oidc-provider --region=$AWS_DEFAULT_REGION --cluster=$AWS_EKS_NAME --approve
-  
+function create_lb(){  
   # IAM Role
   AWS_USER_ID=$(aws sts get-caller-identity | jq -r .UserId)
 
-  # check role name
+  eksctl utils associate-iam-oidc-provider --region=$AWS_DEFAULT_REGION --cluster=$AWS_EKS_NAME --approve
+
+  if [ $? -ne 0 ]; then
+    echo "========== IAM OIDC 공급자와 EKS 연결에 실패했습니다. =========="
+    curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"IAM OIDC 공급자와 EKS 연결 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+    exit 1
+  fi
+
+  oidc_id=$(aws eks describe-cluster --name $AWS_EKS_NAME --query "cluster.identity.oidc.issuer" --output text | cut -d '/' -f 5)
+
+  cat >load-balancer-role-trust-policy.json <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Principal": {
+                "Federated": "arn:aws:iam::$AWS_USER_ID:oidc-provider/oidc.eks.$AWS_DEFAULT_REGION.amazonaws.com/id/$oidc_id"
+            },
+            "Action": "sts:AssumeRoleWithWebIdentity",
+            "Condition": {
+                "StringEquals": {
+                    "oidc.eks.$AWS_DEFAULT_REGION.amazonaws.com/id/$oidc_id:aud": "sts.amazonaws.com",
+                    "oidc.eks.$AWS_DEFAULT_REGION.amazonaws.com/id/$oidc_id:sub": "system:serviceaccount:kube-system:aws-load-balancer-controller"
+                }
+            }
+        }
+    ]
+}
+EOF
+
   if [ "$LB_ROLE" == True ]; then
     random=$(cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 8 | sed 1q)
     AWS_LBC_ROLE=AmazonEKSLoadBalancerControllerRoleQUEST-$random
@@ -18,29 +46,42 @@ function create_lb(){
     AWS_LBC_ROLE=AmazonEKSLoadBalancerControllerRoleQUEST
   fi
 
-  echo $AWS_LBC_ROLE
-
-  AWS_LBC_POLICY=AWSLoadBalancerControllerIAMPolicyQUEST-seomj
-
-  curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
-  aws iam create-policy \
-    --policy-name $AWS_LBC_POLICY \
-    --policy-document file://iam_policy.json
-
-  eksctl create iamserviceaccount \
-    --cluster=$AWS_EKS_NAME \
-    --namespace=kube-system \
-    --region=$AWS_DEFAULT_REGION \
-    --name=aws-load-balancer-controller \
+  aws iam create-role \
     --role-name $AWS_LBC_ROLE \
-    --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/$AWS_LBC_POLICY \
-    --approve \
-    --override-existing-serviceaccounts
+    --assume-role-policy-document file://"load-balancer-role-trust-policy.json"
 
-  # error
+  if [ $? -ne 0 ]; then
+    echo "========== Role 생성에 실패했습니다. =========="
+    curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"Role 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+    exit 1
+  fi
+
+  aws iam attach-role-policy \
+    --policy-arn arn:aws:iam::$AWS_USER_ID:policy/AWSLoadBalancerControllerIAMPolicyQUEST \
+    --role-name $AWS_LBC_ROLE
+
+  if [ $? -ne 0 ]; then
+    echo "========== Role과 Policy 연결에 실패했습니다. =========="
+    curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"Role과 Policy 연결 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
+    exit 1
+  fi
+
+  cat >aws-load-balancer-controller-service-account.yaml <<EOF
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: controller
+    app.kubernetes.io/name: aws-load-balancer-controller
+  name: aws-load-balancer-controller
+  namespace: kube-system
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::$AWS_USER_ID:role/$AWS_LBC_ROLE
+EOF
+
+  kubectl apply -f aws-load-balancer-controller-service-account.yaml
   if [ $? -ne 0 ]; then
     echo "========== SA 생성에 실패했습니다. =========="
-    eksctl delete iamserviceaccount --cluster=$AWS_EKS_NAME --namespace=kube-system --name=aws-load-balancer-controller
     curl -i -X POST -d '{"id":'$ID',"progress":"deploy","state":"failed","emessage":"SA 생성 실패"}' -H "Content-Type: application/json" $API_ENDPOINT
     exit 1
   fi
@@ -67,8 +108,9 @@ function create_lb(){
 
 function public_ecr(){
   aws configure set default.region "us-east-1"
-
-  TAGS_JSON=$(aws ecr-public describe-images --repository-name $AWS_ECR_REPO)
+  
+  AWS_PUB_ECR_REPO=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d "/" -f 3 | cut -d ":" -f 1)
+  TAGS_JSON=$(aws ecr-public describe-images --repository-name $AWS_PUB_ECR_REPO)
   TAGS_LIST=($(echo $TAGS_JSON | jq -r '.imageDetails[].imageTags[]'))
   
   # tag 값 있는지 확인
@@ -83,7 +125,8 @@ function public_ecr(){
 }
 
 function private_ecr(){
-  TAGS_JSON_PRI=$(aws ecr list-images --repository-name $AWS_ECR_REPO)
+  AWS_PRI_ECR_REPO=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d "/" -f 2 | cut -d ":" -f 1)
+  TAGS_JSON_PRI=$(aws ecr list-images --repository-name $AWS_PRI_ECR_REPO --region $AWS_DEFAULT_REGION)
   TAGS_LIST_PRI=($(echo $TAGS_JSON_PRI | jq -r '.imageIds[].imageTag'))
 
   # tag 값 있는지 확인
@@ -95,27 +138,35 @@ function private_ecr(){
   done
 }
 
+function dockerhub(){
+  DOCKER_NS=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d "/" -f 1)
+  DOCKER_REPO=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d "/" -f 2 | cut -d ":" -f 1)
+  DOCKER_TAG=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d "/" -f 2 | cut -d ":" -f 2)
+
+  if [[ $DEPLOY_CONTAINER_IMAGE != *"/"* ]]; then
+    dockerhub_response=$(curl -s -o /dev/null -w "%{http_code}" https://hub.docker.com/v2/repositories/library/$DOCKER_REPO/tags/$DOCKER_TAG)
+  else
+    dockerhub_response=$(curl -s -o /dev/null -w "%{http_code}" https://hub.docker.com/v2/namespaces/$DOCKER_NS/repositories/$DOCKER_REPO/tags/$DOCKER_TAG)
+  fi
+}
 
 # check image
-AWS_ECR_REPO=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d ":" -f 1)
 AWS_ECR_REPO_TAG=$(echo "$DEPLOY_CONTAINER_IMAGE" | cut -d ":" -f 2)
 
 
 IMAGE_PUB_EXIST=false
 IMAGE_PRI_EXIST=false
+dockerhub_response=404
 
-# docker hub 검색
-echo "====== docker hub search ====="
-dockerhub_response=$(curl -s -o /dev/null -w "%{http_code}" https://hub.docker.com/v2/namespaces/choiwonwong/repositories/rapa/tags/main)
-
-# public 검색
-echo "====== public ecr search ====="
-public_ecr
-
-# public에 없다면 private 검색
-if [ $IMAGE_PUB_EXIST != true ]; then
+if [[ $DEPLOY_CONTAINER_IMAGE == *"$AWS_USER_ID"* ]]; then
   echo "====== private ecr search ====="
   private_ecr
+elif [[ $DEPLOY_CONTAINER_IMAGE == *"public"* ]]; then
+  echo "====== public ecr search ====="
+  public_ecr
+else
+  echo "====== docker hub search ====="
+  dockerhub
 fi
 
 # 이미지가 존재하지 않는다면
