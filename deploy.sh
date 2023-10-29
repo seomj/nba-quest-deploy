@@ -18,13 +18,16 @@ function create_lb(){
     AWS_LBC_ROLE=AmazonEKSLoadBalancerControllerRoleQUEST
   fi
 
+  echo $AWS_LBC_ROLE
+  AWS_LBC_POLICY=AWSLoadBalancerControllerIAMPolicyQUEST-seomj
+
   eksctl create iamserviceaccount \
     --cluster=$AWS_EKS_NAME \
     --namespace=kube-system \
     --region=$AWS_DEFAULT_REGION \
     --name=aws-load-balancer-controller \
     --role-name $AWS_LBC_ROLE \
-    --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/AWSLoadBalancerControllerIAMPolicyQUEST \
+    --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/$AWS_LBC_POLICY \
     --approve \
     --override-existing-serviceaccounts
 
@@ -96,13 +99,16 @@ IMAGE_PUB_EXIST=false
 IMAGE_PRI_EXIST=false
 
 # docker hub 검색
+echo "====== docker hub search ====="
 dockerhub_response=$(curl -s -o /dev/null -w "%{http_code}" https://hub.docker.com/v2/namespaces/choiwonwong/repositories/rapa/tags/main)
 
 # public 검색
+echo "====== public ecr search ====="
 public_ecr
 
 # public에 없다면 private 검색
 if [ $IMAGE_PUB_EXIST != true ]; then
+  echo "====== private ecr search ====="
   private_ecr
 fi
 
