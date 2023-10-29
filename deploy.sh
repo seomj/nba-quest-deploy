@@ -19,7 +19,13 @@ function create_lb(){
   fi
 
   echo $AWS_LBC_ROLE
+
   AWS_LBC_POLICY=AWSLoadBalancerControllerIAMPolicyQUEST-seomj
+
+  curl -O https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.5.4/docs/install/iam_policy.json
+  aws iam create-policy \
+    --policy-name $AWS_LBC_POLICY \
+    --policy-document file://iam_policy.json
 
   eksctl create iamserviceaccount \
     --cluster=$AWS_EKS_NAME \
