@@ -25,7 +25,8 @@ function create_lb(){
     --name=aws-load-balancer-controller \
     --role-name $AWS_LBC_ROLE \
     --attach-policy-arn arn:aws:iam::$AWS_USER_ID:policy/AWSLoadBalancerControllerIAMPolicyQUEST \
-    --approve
+    --approve \
+    --override-existing-serviceaccounts
 
   # error
   if [ $? -ne 0 ]; then
