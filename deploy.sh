@@ -303,7 +303,7 @@ spec:
     quest: $TITLE
   ports:
     - protocol: TCP
-      port: $PORT
+      port: 80
       targetPort: $PORT
   type: LoadBalancer
 EOF
