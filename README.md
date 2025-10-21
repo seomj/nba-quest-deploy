@@ -21,11 +21,14 @@
 ---
 
 ## ⚙️ 기능 상세 구현
+
+<img src="./images/deploy_process.png" alt="배포 프로세스" width="900"/>
+
 1. **이미지 검증**: Docker Hub, AWS Public/Private ECR에서 배포 이미지 사전 확인  
 2. **kubeconfig 설정**: AWS EKS 환경 자동 구성  
 3. **AWS Load Balancer Controller 설치 및 설정**: NLB(Network Load Balancer) 구성으로 외부 접근 가능  
 4. **Namespace, Service, Deployment 생성**: 애플리케이션 배포 환경 구성  
-5. **오류 처리 및 롤백**: 배포 중 오류 발생 시 자동 롤백  
+5. **오류 처리 및 롤백**: 배포 중 오류 발생 시 자동 롤백
 
 ---
 
